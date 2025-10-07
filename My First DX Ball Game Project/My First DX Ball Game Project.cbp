@@ -1,46 +1,48 @@
-#include <GL/glut.h>
+#include <GL/glut.h> // GLUT + OpenGL immediate mode drawing
 #include <string>
 #include <vector>
 #include <cmath>
 #include <windows.h>
-#include <mmsystem.h>
+#include <mmsystem.h> // PlaySound
 #include <fstream>
 #include <iostream>
 
-#pragma comment(lib, "Winmm.lib")
+#pragma comment(lib, "Winmm.lib") // PlaySound
 
 using namespace std;
 
-enum GameState { STATE_MENU, STATE_PLAYING, STATE_CREDITS, STATE_ENTER_NAME };
-GameState gameState = STATE_MENU;
+enum GameState { STATE_MENU, STATE_PLAYING, STATE_CREDITS, STATE_ENTER_NAME }; //controls current screen
+GameState gameState = STATE_MENU; // Current screen is Menu
 
 int selectedOption = 0;
 string difficulty = "Medium";
 bool soundOn = true;
-bool inGameMusicPlaying = false;
+bool inGameMusicPlaying = false; //Checks in game sound playing or not
 int lives = 3;
-string playerName = "";
-vector<string> bricksAlive;
+string playerName = ""; // Pore player er nam storing er jonno
+vector<string> bricksAlive; //Koto gulo bricks baki r
 
+//Paddle position
 float paddleX = 0.0f;
 float paddleWidth = 0.4f;
 float paddleHeight = 0.05f;
-float ballX = 0.0f, ballY = -0.3f;
-float ballDX = 0.01f, ballDY = 0.015f;
+//Ball Position
+float ballX = 0.0f, ballY = -0.3f; //Ball position
+float ballDX = 0.01f, ballDY = 0.015f; //Ball velocity
 bool ballMoving = false;
 
 // Mouse drag control
-bool isDragging = false;
+bool isDragging = false; // checks if player is currently dragging the paddle
 float dragOffsetX = 0.0f;
 
-// Smaller bricks for dense triangular layout
+// Bricks for triangular layout
 float brickWidth = 0.06f;
 float brickHeight = 0.025f;
 
-struct Brick { float x,y; bool alive; };
-vector<Brick> bricks;
+struct Brick { float x,y; bool alive; }; //position X,Y, Flag= Alive
+vector<Brick> bricks; //Container/Array to hold the brick
 
-float menuOffset = -1.0f;
+float menuOffset = -1.0f; //Vertically Menu dekhai
 
 // WAV music path
 string arcadeMusicPath = "D:\\Huddai\\Boring Time\\Projects\\My First DX Ball Game Project\\arcade.wav";
@@ -53,14 +55,14 @@ void drawText(string s,float x,float y,void *font=GLUT_BITMAP_HELVETICA_18){
 }
 
 void playMusic(bool inGame=true){
-    if(!soundOn) return;
-    PlaySound(arcadeMusicPath.c_str(), NULL, SND_ASYNC | SND_LOOP);
-    inGameMusicPlaying = inGame;
+    if(!soundOn) return; //if sound is false, do nothing
+    PlaySound(arcadeMusicPath.c_str(), NULL, SND_ASYNC | SND_LOOP); //calls PlaySound to execute .WAV file
+    inGameMusicPlaying = inGame; // Music ON + inGame eao music ON
 }
 
 void stopMusic(){
-    PlaySound(NULL,0,0);
-    inGameMusicPlaying = false;
+    PlaySound(NULL,0,0); // Calling playSound Null stops playback
+    inGameMusicPlaying = false; //updates the flag
 }
 
 void applyDifficulty(){
@@ -70,18 +72,22 @@ void applyDifficulty(){
 }
 
 void createDenseUpsideDownTriangleBricks() {
-    bricks.clear();
-    int rows = 15;
+    bricks.clear(); //Removes previous bricks
+    int rows = 18; //total bricks in the top
     float startY = 0.9f;
     for(int r=0; r<rows; r++){
-        int bricksInRow = rows - r + 5;
-        float rowWidth = bricksInRow * brickWidth;
-        float startX = -rowWidth/2;
+        int bricksInRow = rows - r + 5; //Top row is the widest and it gets narrower as r increases
+        float rowWidth = bricksInRow * brickWidth; //Total width of the current row
+        float startX = -rowWidth/2; //Brick row is centered horizontally -----
+
+        // Bricks breaking
         for(int c=0;c<bricksInRow;c++){
-            bricks.push_back({startX + c*brickWidth, startY - r*brickHeight, true});
+            bricks.push_back({startX + c*brickWidth, startY - r*brickHeight, true}); //Make the brick still exist Horizontally & Vertically and add it to the list of all bricks
         }
     }
 }
+
+//Ball and Paddle position after reset the game
 
 void resetGame(){
     ballX=0; ballY=-0.3f; ballMoving=false; paddleX=0;
@@ -94,7 +100,7 @@ void drawMenu(){
     drawText("== DX BALL ==",-0.18f,0.6f+menuOffset,GLUT_BITMAP_TIMES_ROMAN_24);
 
     for(int i=0;i<5;i++){
-        if(i==selectedOption) glColor3f(1.0f,0.6f,0.2f); // orange
+        if(i==selectedOption) glColor3f(1.0f,0.6f,0.2f); // orange //Jai option select korbo oita orange kore dibe
         else glColor3f(1.0f,1.0f,1.0f); // white
         drawText(options[i],-0.15f,0.3f-0.15f*i+menuOffset);
     }
@@ -124,20 +130,20 @@ void drawGame(){
 
     // Ball
     glColor3f(1,0,0);
-    glBegin(GL_TRIANGLE_FAN);
-    glVertex2f(ballX,ballY);
-    for(int i=0;i<=20;i++){
-        float theta=i*3.14159f*2/20;
-        glVertex2f(ballX+0.02f*cos(theta), ballY+0.02f*sin(theta));
+    glBegin(GL_TRIANGLE_FAN); //circle approximation
+    glVertex2f(ballX,ballY); // loop to produce 20 segments circle approximation
+    for(int i=0;i<=20;i++){ //20 segments
+        float theta=i*3.14159f*2/20; //angle of the current virtex
+        glVertex2f(ballX+0.02f*cos(theta), ballY+0.02f*sin(theta)); //Vertex on the circle of radius 0.02
     }
     glEnd();
 
     // Bricks
-    for(auto &b:bricks){
-        if(!b.alive) continue;
+    for(auto &b:bricks){ // Getting all bricks
+        if(!b.alive) continue; //Skip dead bricks
         glColor3f(0,1,0);
-        glBegin(GL_QUADS);
-        glVertex2f(b.x-brickWidth/2,b.y-brickHeight/2);
+        glBegin(GL_QUADS); //Draw each brick as a quad
+        glVertex2f(b.x-brickWidth/2,b.y-brickHeight/2); //position calculation of brick
         glVertex2f(b.x+brickWidth/2,b.y-brickHeight/2);
         glVertex2f(b.x+brickWidth/2,b.y+brickHeight/2);
         glVertex2f(b.x-brickWidth/2,b.y+brickHeight/2);
@@ -145,14 +151,15 @@ void drawGame(){
     }
 
     // Lives
-    glColor3f(1,1,0);
-    drawText("Lives: "+to_string(lives), -0.95f,0.9f);
+    glColor3f(1,1,0); //yellow
+    drawText("Lives: "+to_string(lives), -0.95f,0.9f); //Display lives at top left
 
     // Exit button
     glColor3f(1,1,1);
-    drawText("Exit",0.85f,0.9f);
+    drawText("Exit",0.85f,0.9f); //same
 }
 
+//showing all the designs of the each Menu options
 void display(){
     if(gameState==STATE_MENU) drawMenu();
     else if(gameState==STATE_PLAYING) drawGame();
@@ -160,6 +167,7 @@ void display(){
     glutSwapBuffers();
 }
 
+// Future work Ball work
 void update(){
     if(gameState==STATE_PLAYING && ballMoving){
         ballX+=ballDX; ballY+=ballDY;
@@ -186,7 +194,7 @@ void update(){
 void keyboard(unsigned char key,int x,int y){
     if(gameState==STATE_PLAYING && key==' ') ballMoving=true;
 
-    if(key==13 && gameState==STATE_MENU){ // Enter key
+    if(key==13 && gameState==STATE_MENU){
         switch(selectedOption){
             case 0: // Play
                 gameState=STATE_PLAYING;
@@ -211,11 +219,13 @@ void keyboard(unsigned char key,int x,int y){
     }
 }
 
+// Paddle keyboard control
+
 void specialKeys(int key,int x,int y){
     if(gameState==STATE_PLAYING){
         if(key==GLUT_KEY_LEFT) paddleX-=0.05f;
         if(key==GLUT_KEY_RIGHT) paddleX+=0.05f;
-    } else if(gameState==STATE_MENU){
+    } else if(gameState==STATE_MENU){ // Menu selection using arrow
         if(key==GLUT_KEY_UP) selectedOption=(selectedOption+4)%5;
         if(key==GLUT_KEY_DOWN) selectedOption=(selectedOption+1)%5;
     }
@@ -235,7 +245,7 @@ void mouse(int button,int state,int x,int y){
                 dragOffsetX = normX - paddleX;
             }
 
-            // Exit button
+            // inGame Exit button
             if(normX>0.8f && normX<0.98f && normY>0.85f && normY<0.95f){
                 gameState=STATE_MENU;
                 resetGame();
@@ -243,7 +253,7 @@ void mouse(int button,int state,int x,int y){
                 if(soundOn) playMusic(false);
             }
         }
-        else if(button==GLUT_LEFT_BUTTON && state==GLUT_UP){
+        else if(button==GLUT_LEFT_BUTTON && state==GLUT_UP){ //Otherwise the mouse is not dragging
             isDragging = false;
         }
     }
@@ -254,15 +264,15 @@ void mouse(int button,int state,int x,int y){
                 selectedOption=i;
                 keyboard(13,0,0);
             }
-        }
+        } //Credits Anywhere clicking
     } else if(gameState==STATE_CREDITS && button==GLUT_LEFT_BUTTON && state==GLUT_DOWN){
         gameState=STATE_MENU;
     }
 }
 
 // Mouse drag motion
-void mouseDrag(int x, int y){
-    if(isDragging){
+void mouseDrag(int x, int y){ //GLUT motion callback when mouse moves with button pressed
+    if(isDragging){ //Only act if dragging was initiated
         float normX=(float)x/800*2-1;
         float newPaddleX = normX - dragOffsetX;
         float halfPaddle = paddleWidth/2;
