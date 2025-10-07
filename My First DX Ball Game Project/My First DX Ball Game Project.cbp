@@ -18,7 +18,7 @@ int selectedOption = 0;
 string difficulty = "Medium";
 bool soundOn = true;
 bool inGameMusicPlaying = false; //Checks in game sound playing or not
-int lives = 3;
+int lives = 3; //default lives for Hard = 3
 string playerName = ""; // Pore player er nam storing er jonno
 vector<string> bricksAlive; //Koto gulo bricks baki r
 
@@ -198,7 +198,7 @@ void keyboard(unsigned char key,int x,int y){
         switch(selectedOption){
             case 0: // Play
                 gameState=STATE_PLAYING;
-                lives=(difficulty=="Easy")?7:(difficulty=="Medium"?5:3);
+                lives=(difficulty=="Easy")?7:(difficulty=="Medium"?5:3); // Live change based on difficulty level
                 resetGame();
                 applyDifficulty();
                 createDenseUpsideDownTriangleBricks();
