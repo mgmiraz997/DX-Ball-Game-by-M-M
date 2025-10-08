@@ -1,302 +1,488 @@
-#include <GL/glut.h> // GLUT + OpenGL immediate mode drawing
-#include <string>
-#include <vector>
-#include <cmath>
+#include <GL/glut.h>
+#ifdef _WIN32
 #include <windows.h>
-#include <mmsystem.h> // PlaySound
-#include <fstream>
+#include <mmsystem.h>
+#pragma comment(lib, "Winmm.lib")
+#endif
+
+#include <cmath>
+#include <vector>
+#include <string>
+#include <sstream>
+#include <ctime>
+#include <cstdlib>
+#include <algorithm>
 #include <iostream>
-
-#pragma comment(lib, "Winmm.lib") // PlaySound
-
+#include <fstream>
 using namespace std;
 
-enum GameState { STATE_MENU, STATE_PLAYING, STATE_CREDITS, STATE_ENTER_NAME }; //controls current screen
-GameState gameState = STATE_MENU; // Current screen is Menu
+// -------------------- STATE --------------------
+enum GameState { STATE_HIGH_SCORES, STATE_MENU, STATE_NAME_INPUT, STATE_PLAYING, STATE_PAUSED, STATE_CREDITS, STATE_GAME_OVER };
+GameState gameState = STATE_MENU;
 
+// Menu
 int selectedOption = 0;
+vector<string> menuOptions = { "Play", "Difficulty: Medium", "Sound: On", "Highest Scores", "Credits", "Exit" };
+float menuX=0.0f, menuStartY=0.0f, menuSpacing=30.0f;
+int WIN_W=800, WIN_H=600;
+
+// Difficulty & sound
 string difficulty = "Medium";
-bool soundOn = true;
-bool inGameMusicPlaying = false; //Checks in game sound playing or not
-int lives = 3; //default lives for Hard = 3
-string playerName = ""; // Pore player er nam storing er jonno
-vector<string> bricksAlive; //Koto gulo bricks baki r
-
-//Paddle position
-float paddleX = 0.0f;
-float paddleWidth = 0.4f;
-float paddleHeight = 0.05f;
-//Ball Position
-float ballX = 0.0f, ballY = -0.3f; //Ball position
-float ballDX = 0.01f, ballDY = 0.015f; //Ball velocity
-bool ballMoving = false;
-
-// Mouse drag control
-bool isDragging = false; // checks if player is currently dragging the paddle
-float dragOffsetX = 0.0f;
-
-// Bricks for triangular layout
-float brickWidth = 0.06f;
-float brickHeight = 0.025f;
-
-struct Brick { float x,y; bool alive; }; //position X,Y, Flag= Alive
-vector<Brick> bricks; //Container/Array to hold the brick
-
-float menuOffset = -1.0f; //Vertically Menu dekhai
-
-// WAV music path
+bool soundOn=true;
+bool musicPlaying=false;
 string arcadeMusicPath = "D:\\Huddai\\Boring Time\\Projects\\My First DX Ball Game Project\\arcade.wav";
 
-// ---------- Functions ----------
+// Gameplay
+int lives=3, score=0, levelNum=1;
+float lastTime=0.0f;
+string playerName="";
+vector<pair<string,int>> highScores;
 
-void drawText(string s,float x,float y,void *font=GLUT_BITMAP_HELVETICA_18){
-    glRasterPos2f(x,y);
-    for(char c:s) glutBitmapCharacter(font,c);
+// Exit button
+float exitBtnX=0, exitBtnY=0, exitBtnW=150, exitBtnH=40;
+
+// Input
+bool leftDown=false, rightDown=false;
+bool mouseDragging=false;
+
+// -------------------- PADDLE --------------------
+struct Paddle {
+    float x,y,halfW,h,speed;
+    Paddle(){ reset(); }
+    void reset(){ halfW=60; h=10; x=WIN_W/2.0f; y=40; speed=500.0f; }
+    void draw() const {
+        glBegin(GL_QUADS);
+        glVertex2f(x-halfW, y-h);
+        glVertex2f(x+halfW, y-h);
+        glVertex2f(x+halfW, y+h);
+        glVertex2f(x-halfW, y+h);
+        glEnd();
+    }
+} paddle;
+
+// -------------------- BALL --------------------
+struct Ball {
+    float x,y,vx,vy,r;
+    bool stuck;
+    Ball(){ reset(); }
+    void reset(){ r=7.0f; x=paddle.x; y=paddle.y+20; vx=220; vy=220; stuck=true; }
+    void draw() const {
+        const int seg=24;
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex2f(x,y);
+        for(int i=0;i<=seg;i++){
+            float a=(float)i/seg * 2.0f * 3.1415926535f;
+            glVertex2f(x+cosf(a)*r, y+sinf(a)*r);
+        }
+        glEnd();
+    }
+} ball;
+
+// -------------------- BRICK --------------------
+struct Brick {
+    float x,y,w,h;
+    int hits;
+    float r,g,b;
+    bool alive() const { return hits>0; }
+    void draw() const {
+        if(!alive()) return;
+        glColor3f(r,g,b);
+        glBegin(GL_QUADS);
+        glVertex2f(x,y); glVertex2f(x+w,y); glVertex2f(x+w,y+h); glVertex2f(x,y+h);
+        glEnd();
+        glColor3f(0,0,0);
+        glBegin(GL_LINE_LOOP);
+        glVertex2f(x,y); glVertex2f(x+w,y); glVertex2f(x+w,y+h); glVertex2f(x,y+h);
+        glEnd();
+    }
+};
+vector<Brick> bricks;
+
+// -------------------- POWERUPS --------------------
+enum PowerType { EXPAND, SLOW, EXTRA_LIFE };
+struct PowerUp {
+    float x,y,w,h,vy;
+    PowerType type;
+    bool active;
+    PowerUp(float px,float py,PowerType t):x(px),y(py),w(18),h(18),vy(-80),type(t),active(true){}
+    void draw() const {
+        if(!active) return;
+        switch(type){
+            case EXPAND: glColor3f(0.2f,0.8f,0.2f); break;
+            case SLOW: glColor3f(0.2f,0.2f,0.8f); break;
+            case EXTRA_LIFE: glColor3f(0.9f,0.6f,0.1f); break;
+        }
+        glBegin(GL_QUADS);
+        glVertex2f(x-w/2,y-h/2);
+        glVertex2f(x+w/2,y-h/2);
+        glVertex2f(x+w/2,y+h/2);
+        glVertex2f(x-w/2,y+h/2);
+        glEnd();
+    }
+    void update(float dt){ if(active) y += vy*dt; }
+};
+vector<PowerUp> powerups;
+
+// -------------------- UTIL --------------------
+float clampf(float v, float lo, float hi){ return (v<lo?lo:(v>hi?hi:v)); }
+bool rectIntersect(float ax,float ay,float aw,float ah,float bx,float by,float bw,float bh){
+    return !(ax+aw < bx || ax > bx+bw || ay+ah < by || ay > by+bh);
 }
 
+// -------------------- SOUND --------------------
 void playMusic(bool inGame=true){
-    if(!soundOn) return; //if sound is false, do nothing
-    PlaySound(arcadeMusicPath.c_str(), NULL, SND_ASYNC | SND_LOOP); //calls PlaySound to execute .WAV file
-    inGameMusicPlaying = inGame; // Music ON + inGame eao music ON
+    if(!soundOn) return;
+    PlaySound(arcadeMusicPath.c_str(), NULL, SND_ASYNC | SND_LOOP);
+    musicPlaying = inGame;
 }
-
 void stopMusic(){
-    PlaySound(NULL,0,0); // Calling playSound Null stops playback
-    inGameMusicPlaying = false; //updates the flag
+    PlaySound(NULL,0,0);
+    musicPlaying = false;
 }
 
-void applyDifficulty(){
-    if(difficulty=="Easy"){ paddleWidth=0.5f; ballDX=0.008f; ballDY=0.012f; }
-    else if(difficulty=="Medium"){ paddleWidth=0.4f; ballDX=0.01f; ballDY=0.015f; }
-    else { paddleWidth=0.3f; ballDX=0.014f; ballDY=0.02f; }
-}
-
-void createDenseUpsideDownTriangleBricks() {
-    bricks.clear(); //Removes previous bricks
-    int rows = 18; //total bricks in the top
-    float startY = 0.9f;
-    for(int r=0; r<rows; r++){
-        int bricksInRow = rows - r + 5; //Top row is the widest and it gets narrower as r increases
-        float rowWidth = bricksInRow * brickWidth; //Total width of the current row
-        float startX = -rowWidth/2; //Brick row is centered horizontally -----
-
-        // Bricks breaking
-        for(int c=0;c<bricksInRow;c++){
-            bricks.push_back({startX + c*brickWidth, startY - r*brickHeight, true}); //Make the brick still exist Horizontally & Vertically and add it to the list of all bricks
+// -------------------- LEVEL BUILD --------------------
+void buildLevel(int lvl){
+    bricks.clear();
+    int rows=5+lvl/2, cols=10;
+    float margin=50, gap=6;
+    float brickAreaW = WIN_W - 2*margin;
+    float bw = brickAreaW/cols - gap;
+    float bh = 18;
+    for(int r=0;r<rows;r++){
+        for(int c=0;c<cols;c++){
+            Brick b;
+            b.x = margin + c*(bw+gap);
+            b.y = WIN_H - margin - (r+1)*(bh+gap);
+            b.w = bw; b.h = bh;
+            b.hits = 1 + (r/3);
+            b.r = 0.2f + 0.12f*r;
+            b.g = 0.1f + 0.14f*c/cols;
+            b.b = 0.4f - 0.04f*r;
+            bricks.push_back(b);
         }
     }
 }
+void resetLevel(){ paddle.reset(); ball.reset(); powerups.clear(); buildLevel(levelNum); }
 
-//Ball and Paddle position after reset the game
+// -------------------- DIFFICULTY --------------------
+void applyDifficulty(){
+    if(difficulty=="Easy"){ paddle.halfW=90; ball.vx=180; ball.vy=180; lives=7; }
+    else if(difficulty=="Medium"){ paddle.halfW=60; ball.vx=220; ball.vy=220; lives=5; }
+    else { paddle.halfW=40; ball.vx=280; ball.vy=280; lives=3; }
+}
 
-void resetGame(){
-    ballX=0; ballY=-0.3f; ballMoving=false; paddleX=0;
+// -------------------- GAME LOGIC --------------------
+void spawnPowerUp(float x,float y){
+    if(rand()%100<20){
+        int p = rand()%3; PowerType t = (p==0?EXPAND:(p==1?SLOW:EXTRA_LIFE));
+        powerups.emplace_back(x,y,t);
+    }
+}
+
+void nextLevel(){ levelNum++; resetLevel(); }
+void loseLife(){
+    lives--;
+    if(lives<=0){
+        gameState = STATE_GAME_OVER;
+        stopMusic();
+        highScores.push_back({playerName, score});
+        sort(highScores.begin(), highScores.end(), [](auto &a, auto &b){ return a.second>b.second; });
+        ofstream fout("scores.txt");
+        int cnt=0;
+        for(auto &p: highScores){ fout << p.first << " " << p.second << "\n"; if(++cnt>=10) break; }
+        fout.close();
+    } else { ball.reset(); }
+}
+
+void updateGame(float dt){
+    if(gameState != STATE_PLAYING) return;
+    if(leftDown) paddle.x -= paddle.speed*dt;
+    if(rightDown) paddle.x += paddle.speed*dt;
+    paddle.x = clampf(paddle.x, paddle.halfW, WIN_W-paddle.halfW);
+
+    if(ball.stuck){ ball.x=paddle.x; ball.y=paddle.y+20; }
+    else { ball.x += ball.vx*dt; ball.y += ball.vy*dt; }
+
+    if(ball.x-ball.r <=0){ ball.x=ball.r; ball.vx=fabs(ball.vx); }
+    if(ball.x+ball.r >=WIN_W){ ball.x=WIN_W-ball.r; ball.vx=-fabs(ball.vx); }
+    if(ball.y+ball.r >=WIN_H){ ball.y=WIN_H-ball.r; ball.vy=-fabs(ball.vy); }
+    if(ball.y-ball.r <=0){ loseLife(); }
+
+    if(ball.vy<0 && ball.y-ball.r <= paddle.y+paddle.h &&
+       ball.x>=paddle.x-paddle.halfW && ball.x<=paddle.x+paddle.halfW){
+        float hitPos = (ball.x-paddle.x)/paddle.halfW;
+        float angle = hitPos*3.14159265f/3.0f;
+        float speed = sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+        ball.vx = speed*sin(angle); ball.vy=fabs(speed*cos(angle));
+        ball.y=paddle.y+paddle.h+ball.r+1;
+    }
+
+    for(auto &b: bricks){
+        if(!b.alive()) continue;
+        if(rectIntersect(ball.x-ball.r,ball.y-ball.r,ball.r*2,ball.r*2,b.x,b.y,b.w,b.h)){
+            ball.vy=-ball.vy; b.hits--;
+            if(!b.alive()){ score+=100; spawnPowerUp(b.x+b.w/2,b.y+b.h/2); } else score+=50;
+            break;
+        }
+    }
+
+    for(auto &p: powerups) p.update(dt);
+    for(auto &p: powerups){
+        if(!p.active) continue;
+        if(rectIntersect(p.x-p.w/2,p.y-p.h/2,p.w,p.h,
+                         paddle.x-paddle.halfW,paddle.y-paddle.h,paddle.halfW*2,paddle.h*2)){
+            p.active=false;
+            switch(p.type){
+                case EXPAND: paddle.halfW=clampf(paddle.halfW*1.5f,40,200); break;
+                case SLOW: ball.vx*=0.7f; ball.vy*=0.7f; break;
+                case EXTRA_LIFE: lives++; break;
+            }
+        }
+    }
+    powerups.erase(remove_if(powerups.begin(), powerups.end(), [](const PowerUp &p){ return !p.active||p.y<-50; }), powerups.end());
+
+    bool anyAlive=false;
+    for(auto &b: bricks) if(b.alive()){ anyAlive=true; break; }
+    if(!anyAlive) nextLevel();
+}
+
+// -------------------- DRAW --------------------
+void drawText(float x,float y,const string &s){
+    glRasterPos2f(x,y);
+    for(char c: s) glutBitmapCharacter(GLUT_BITMAP_HELVETICA_18, c);
 }
 
 void drawMenu(){
-    glClearColor(0.05f,0.05f,0.1f,1.0f);
+    glClearColor(0.05f,0.05f,0.08f,1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
-    string options[5] = {"1. Play", "2. Level: "+difficulty, "3. Sound: "+string(soundOn?"ON":"OFF"), "4. Credits", "5. Exit"};
-    drawText("== DX BALL ==",-0.18f,0.6f+menuOffset,GLUT_BITMAP_TIMES_ROMAN_24);
-
-    for(int i=0;i<5;i++){
-        if(i==selectedOption) glColor3f(1.0f,0.6f,0.2f); // orange //Jai option select korbo oita orange kore dibe
-        else glColor3f(1.0f,1.0f,1.0f); // white
-        drawText(options[i],-0.15f,0.3f-0.15f*i+menuOffset);
-    }
-}
-
-void drawCredits(){
-    glClearColor(0.05f,0.05f,0.1f,1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glColor3f(1.0f,1.0f,1.0f);
-    drawText("Developed by   =^_^=",-0.25f,0.6f);
-    drawText("1. Mahmudul Gony Miraz",-0.25f,0.45f);
-    drawText("2. Mahara Zaman",-0.25f,0.3f);
-    drawText("(Click Anywhere To Return)",-0.25f,-0.5f);
-}
-
-void drawGame(){
-    glClearColor(0,0,0,1); glClear(GL_COLOR_BUFFER_BIT);
-
-    // Paddle
-    glColor3f(0,0,1);
-    glBegin(GL_QUADS);
-    glVertex2f(paddleX-paddleWidth/2,-0.9f);
-    glVertex2f(paddleX+paddleWidth/2,-0.9f);
-    glVertex2f(paddleX+paddleWidth/2,-0.9f+paddleHeight);
-    glVertex2f(paddleX-paddleWidth/2,-0.9f+paddleHeight);
-    glEnd();
-
-    // Ball
-    glColor3f(1,0,0);
-    glBegin(GL_TRIANGLE_FAN); //circle approximation
-    glVertex2f(ballX,ballY); // loop to produce 20 segments circle approximation
-    for(int i=0;i<=20;i++){ //20 segments
-        float theta=i*3.14159f*2/20; //angle of the current virtex
-        glVertex2f(ballX+0.02f*cos(theta), ballY+0.02f*sin(theta)); //Vertex on the circle of radius 0.02
-    }
-    glEnd();
-
-    // Bricks
-    for(auto &b:bricks){ // Getting all bricks
-        if(!b.alive) continue; //Skip dead bricks
-        glColor3f(0,1,0);
-        glBegin(GL_QUADS); //Draw each brick as a quad
-        glVertex2f(b.x-brickWidth/2,b.y-brickHeight/2); //position calculation of brick
-        glVertex2f(b.x+brickWidth/2,b.y-brickHeight/2);
-        glVertex2f(b.x+brickWidth/2,b.y+brickHeight/2);
-        glVertex2f(b.x-brickWidth/2,b.y+brickHeight/2);
-        glEnd();
-    }
-
-    // Lives
-    glColor3f(1,1,0); //yellow
-    drawText("Lives: "+to_string(lives), -0.95f,0.9f); //Display lives at top left
-
-    // Exit button
     glColor3f(1,1,1);
-    drawText("Exit",0.85f,0.9f); //same
-}
-
-//showing all the designs of the each Menu options
-void display(){
-    if(gameState==STATE_MENU) drawMenu();
-    else if(gameState==STATE_PLAYING) drawGame();
-    else if(gameState==STATE_CREDITS) drawCredits();
+    drawText(WIN_W/2-80,WIN_H-100,"== DX BALL ==");
+    menuX = WIN_W/2-70; menuStartY = WIN_H/2;
+    for(int i=0;i<(int)menuOptions.size();++i){
+        if(i==1) menuOptions[i] = "Difficulty: "+difficulty;
+        if(i==2) menuOptions[i] = "Sound: "+string(soundOn?"On":"Off");
+        float y = menuStartY - i*menuSpacing;
+        if(i==selectedOption) glColor3f(1.0f,0.6f,0.2f); else glColor3f(1,1,1);
+        drawText(menuX,y,menuOptions[i]);
+    }
     glutSwapBuffers();
 }
 
-// Future work Ball work
-void update(){
-    if(gameState==STATE_PLAYING && ballMoving){
-        ballX+=ballDX; ballY+=ballDY;
-        if(ballX>1 || ballX<-1) ballDX*=-1;
-        if(ballY>1) ballDY*=-1;
-        if(ballY<-0.9f && ballX>paddleX-paddleWidth/2 && ballX<paddleX+paddleWidth/2) ballDY*=-1;
-        if(ballY<-1.0f){
-            lives--;
-            if(lives<=0) gameState=STATE_ENTER_NAME;
-            else resetGame();
-        }
-        for(auto &b:bricks){
-            if(b.alive && fabs(ballX-b.x)<0.05f && fabs(ballY-b.y)<0.02f){
-                b.alive=false;
-                ballDY*=-1;
-                break;
-            }
-        }
+void drawGame(){
+    glClearColor(0.12f,0.12f,0.12f,1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    glColor3f(0.9f,0.9f,0.9f); paddle.draw();
+    glColor3f(1.0f,0.6f,0.2f); ball.draw();
+    for(auto &b: bricks) b.draw();
+    for(auto &p: powerups) p.draw();
+
+    glColor3f(1,1,1);
+    ostringstream ss;
+    ss << "Player: " << playerName; drawText(10,WIN_H-42,ss.str());
+    ss.str(""); ss<<"Score: "<<score; drawText(10,WIN_H-22,ss.str());
+    ss.str(""); ss<<"Lives: "<<lives; drawText(150,WIN_H-22,ss.str());
+    ss.str(""); ss<<"Level: "<<levelNum; drawText(260,WIN_H-22,ss.str());
+
+    if(gameState==STATE_PAUSED){
+        drawText(WIN_W/2-40, WIN_H/2+20, "PAUSED");
+        exitBtnW = 150; exitBtnH = 40;
+        exitBtnX = WIN_W/2 - exitBtnW/2;
+        exitBtnY = WIN_H/2 - 40;
+        glColor3f(0.8f,0.2f,0.2f);
+        glBegin(GL_QUADS);
+            glVertex2f(exitBtnX, exitBtnY);
+            glVertex2f(exitBtnX+exitBtnW, exitBtnY);
+            glVertex2f(exitBtnX+exitBtnW, exitBtnY+exitBtnH);
+            glVertex2f(exitBtnX, exitBtnY+exitBtnH);
+        glEnd();
+        glColor3f(1,1,1);
+        drawText(exitBtnX+30, exitBtnY+12, "EXIT TO MENU");
     }
-    if(gameState==STATE_MENU && menuOffset<0.0f) menuOffset+=0.02f;
-    glutPostRedisplay();
+
+    if(gameState==STATE_GAME_OVER){
+        drawText(WIN_W/2-120, WIN_H/2+20, "== GAME OVER ==");
+        drawText(WIN_W/2-90, WIN_H/2-6, string("Score: ")+to_string(score));
+        drawText(WIN_W/2-230, WIN_H/2-36, "Press 'R' to 'Restart' or 'Enter' to go back to Main menu");
+    }
+
+    glutSwapBuffers();
 }
 
-void keyboard(unsigned char key,int x,int y){
-    if(gameState==STATE_PLAYING && key==' ') ballMoving=true;
-
-    if(key==13 && gameState==STATE_MENU){
-        switch(selectedOption){
-            case 0: // Play
-                gameState=STATE_PLAYING;
-                lives=(difficulty=="Easy")?7:(difficulty=="Medium"?5:3); // Live change based on difficulty level
-                resetGame();
-                applyDifficulty();
-                createDenseUpsideDownTriangleBricks();
-                playMusic(true);
-                break;
-            case 1: // Change difficulty
+// -------------------- INPUT --------------------
+void keyboard(unsigned char key,int,int){
+    if(key==27) exit(0);
+    if(gameState==STATE_MENU){
+        if(key==13){
+            if(selectedOption==0) gameState=STATE_NAME_INPUT;
+            else if(selectedOption==1){
                 if(difficulty=="Easy") difficulty="Medium";
                 else if(difficulty=="Medium") difficulty="Hard";
                 else difficulty="Easy";
-                break;
-            case 2: // Sound
-                soundOn=!soundOn;
-                if(soundOn) playMusic(false); else stopMusic();
-                break;
-            case 3: gameState=STATE_CREDITS; break;
-            case 4: exit(0);
+            } else if(selectedOption==2){
+                soundOn=!soundOn; if(soundOn) playMusic(); else stopMusic();
+            } else if(selectedOption==3){
+                ifstream fin("scores.txt");
+                highScores.clear(); string n; int s;
+                while(fin>>n>>s) highScores.push_back({n,s});
+                fin.close(); gameState=STATE_HIGH_SCORES;
+            } else if(selectedOption==4) gameState=STATE_CREDITS;
+            else if(selectedOption==5) exit(0);
         }
+    } else if(gameState==STATE_NAME_INPUT){
+        if(key==13 && !playerName.empty()){
+            applyDifficulty(); score=0; levelNum=1; lives=3;
+            resetLevel(); gameState=STATE_PLAYING; if(soundOn) playMusic();
+        } else if(key==8 && !playerName.empty()) playerName.pop_back();
+        else if(isalnum(key)||key==' '||key=='_') playerName.push_back(key);
+    } else if(gameState==STATE_PLAYING){
+        if(key==' '){ gameState=STATE_PAUSED; stopMusic(); }
+    } else if(gameState==STATE_PAUSED){
+        if(key==' '){ gameState=STATE_PLAYING; if(soundOn) playMusic(); }
+    } else if(gameState==STATE_GAME_OVER){
+        if(key=='r'||key=='R'){ applyDifficulty(); score=0; levelNum=1; lives=3;
+            resetLevel(); gameState=STATE_PLAYING; if(soundOn) playMusic();
+        } else if(key==13){ gameState=STATE_MENU; }
+    } else if(gameState==STATE_CREDITS||gameState==STATE_HIGH_SCORES){
+        if(key==13) gameState=STATE_MENU;
     }
 }
 
-// Paddle keyboard control
-
-void specialKeys(int key,int x,int y){
-    if(gameState==STATE_PLAYING){
-        if(key==GLUT_KEY_LEFT) paddleX-=0.05f;
-        if(key==GLUT_KEY_RIGHT) paddleX+=0.05f;
-    } else if(gameState==STATE_MENU){ // Menu selection using arrow
-        if(key==GLUT_KEY_UP) selectedOption=(selectedOption+4)%5;
-        if(key==GLUT_KEY_DOWN) selectedOption=(selectedOption+1)%5;
+void specialDown(int key,int,int){
+    if(gameState==STATE_MENU){
+        if(key==GLUT_KEY_UP) selectedOption=(selectedOption+menuOptions.size()-1)%menuOptions.size();
+        if(key==GLUT_KEY_DOWN) selectedOption=(selectedOption+1)%menuOptions.size();
+    } else if(gameState==STATE_PLAYING){
+        if(key==GLUT_KEY_LEFT) leftDown=true;
+        if(key==GLUT_KEY_RIGHT) rightDown=true;
     }
 }
+void specialUp(int key,int,int){
+    if(key==GLUT_KEY_LEFT) leftDown=false;
+    if(key==GLUT_KEY_RIGHT) rightDown=false;
+}
 
-// ---------- Mouse Drag Paddle Control ----------
-void mouse(int button,int state,int x,int y){
-    float normX=(float)x/800*2-1;
-    float normY=1-(float)y/600*2;
+void mouseClick(int button,int state,int mx,int my){
+    float wx=(float)mx, wy=(float)(WIN_H-my);
 
-    if(gameState==STATE_PLAYING){
-        if(button==GLUT_LEFT_BUTTON && state==GLUT_DOWN){
-            // Check if click is on paddle
-            if(normY>=-0.9f && normY<=-0.9f+paddleHeight &&
-               normX>=paddleX-paddleWidth/2 && normX<=paddleX+paddleWidth/2){
-                isDragging = true;
-                dragOffsetX = normX - paddleX;
+    if(button==GLUT_LEFT_BUTTON){
+        if(state==GLUT_DOWN){
+            if(gameState==STATE_PAUSED){
+                if(wx>=exitBtnX && wx<=exitBtnX+exitBtnW &&
+                   wy>=exitBtnY && wy<=exitBtnY+exitBtnH){
+                    gameState=STATE_MENU;
+                    stopMusic();
+                    return;
+                }
             }
-
-            // inGame Exit button
-            if(normX>0.8f && normX<0.98f && normY>0.85f && normY<0.95f){
+            if(gameState==STATE_CREDITS){
                 gameState=STATE_MENU;
-                resetGame();
-                if(inGameMusicPlaying) stopMusic();
-                if(soundOn) playMusic(false);
+                return;
             }
-        }
-        else if(button==GLUT_LEFT_BUTTON && state==GLUT_UP){ //Otherwise the mouse is not dragging
-            isDragging = false;
-        }
-    }
-    else if(gameState==STATE_MENU && button==GLUT_LEFT_BUTTON && state==GLUT_DOWN){
-        for(int i=0;i<5;i++){
-            float optionY=0.3f-0.15f*i+menuOffset;
-            if(normX>-0.2f && normX<0.2f && normY>optionY-0.05f && normY<optionY+0.05f){
-                selectedOption=i;
-                keyboard(13,0,0);
+            if(gameState==STATE_MENU){
+                menuX=WIN_W/2-70; menuStartY=WIN_H/2;
+                float boxW=180, boxH=22;
+                for(int i=0;i<(int)menuOptions.size();++i){
+                    float itemY = menuStartY - i*menuSpacing;
+                    if(wx>menuX && wx<menuX+boxW && wy>itemY-5 && wy<itemY+boxH){
+                        selectedOption=i;
+                        keyboard(13,0,0);
+                    }
+                }
             }
-        } //Credits Anywhere clicking
-    } else if(gameState==STATE_CREDITS && button==GLUT_LEFT_BUTTON && state==GLUT_DOWN){
-        gameState=STATE_MENU;
+            if(gameState==STATE_PLAYING){
+                if(ball.stuck) ball.stuck=false;
+                mouseDragging=true;
+            }
+        } else if(state==GLUT_UP){
+            mouseDragging=false;
+        }
     }
 }
 
-// Mouse drag motion
-void mouseDrag(int x, int y){ //GLUT motion callback when mouse moves with button pressed
-    if(isDragging){ //Only act if dragging was initiated
-        float normX=(float)x/800*2-1;
-        float newPaddleX = normX - dragOffsetX;
-        float halfPaddle = paddleWidth/2;
-        if(newPaddleX < -1.0f + halfPaddle) newPaddleX = -1.0f + halfPaddle;
-        if(newPaddleX > 1.0f - halfPaddle) newPaddleX = 1.0f - halfPaddle;
-        paddleX = newPaddleX;
+void mouseMotion(int mx,int my){
+    if(gameState==STATE_PLAYING && mouseDragging){
+        paddle.x = clampf((float)mx, paddle.halfW, WIN_W - paddle.halfW);
+        if(ball.stuck) ball.x = paddle.x;
     }
+}
+
+// -------------------- RENDER LOOP --------------------
+void display(){
+    switch(gameState){
+        case STATE_MENU: drawMenu(); break;
+        case STATE_PLAYING:
+        case STATE_PAUSED:
+        case STATE_GAME_OVER: drawGame(); break;
+        case STATE_NAME_INPUT:
+            glClearColor(0.1f,0.1f,0.1f,1);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glColor3f(1,1,1);
+            drawText(WIN_W/2-90, WIN_H/2+20, "Enter your name:");
+            drawText(WIN_W/2-60, WIN_H/2-10, playerName+"_");
+            glutSwapBuffers();
+            break;
+        case STATE_CREDITS:
+            glClearColor(0.05f,0.05f,0.05f,1);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glColor3f(1,1,1);
+            drawText(WIN_W/2-100, WIN_H/2+80,"Developed by   =^_^=");
+            drawText(WIN_W/2-120, WIN_H/2+50,"1. Mahmudul Gony Miraz");
+            drawText(WIN_W/2-120, WIN_H/2+20,"2. Mahara Zaman");
+            drawText(WIN_W/2-130, WIN_H/2-40,"(Click Anywhere To Return)");
+            glutSwapBuffers();
+            break;
+        case STATE_HIGH_SCORES:
+            glClearColor(0.05f,0.05f,0.05f,1);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glColor3f(1,1,1);
+            drawText(WIN_W/2-80,WIN_H-60,"== HIGHEST SCORES ==");
+            for(int i=0;i<(int)highScores.size()&&i<10;i++){
+                ostringstream ss;
+                ss<<i+1<<". "<<highScores[i].first<<" - "<<highScores[i].second;
+                drawText(WIN_W/2-80,WIN_H-100-i*22,ss.str());
+            }
+            drawText(WIN_W/2-90,50,"Press Enter to return");
+            glutSwapBuffers();
+            break;
+    }
+}
+
+void reshape(int w,int h){
+    WIN_W=w; WIN_H=h;
+    glViewport(0,0,w,h);
+    glMatrixMode(GL_PROJECTION); glLoadIdentity();
+    gluOrtho2D(0,w,0,h);
+    glMatrixMode(GL_MODELVIEW);
+}
+
+void idle(){
+    float now = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
+    float dt = now - lastTime;
+    lastTime = now;
+    updateGame(dt);
+    glutPostRedisplay();
 }
 
 int main(int argc,char**argv){
+    srand((unsigned)time(0));
     glutInit(&argc,argv);
     glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
-    glutInitWindowSize(800,600);
-    glutCreateWindow("DX Ball - Simplified");
-    glClearColor(0,0,0,1);
+    glutInitWindowSize(WIN_W,WIN_H);
+    glutCreateWindow("DX BALL");
 
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
-    glutSpecialFunc(specialKeys);
-    glutMouseFunc(mouse);
-    glutMotionFunc(mouseDrag);
-    glutIdleFunc(update);
+    glutSpecialFunc(specialDown);
+    glutSpecialUpFunc(specialUp);
+    glutMouseFunc(mouseClick);
+    glutMotionFunc(mouseMotion);
+    glutReshapeFunc(reshape);
+    glutIdleFunc(idle);
 
-    if(soundOn) playMusic(false);
+    playMusic(false);
+    lastTime = glutGet(GLUT_ELAPSED_TIME)/1000.0f;
 
     glutMainLoop();
+    return 0;
 }
