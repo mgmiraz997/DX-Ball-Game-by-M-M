@@ -47,27 +47,27 @@ bool mouseDragging=false;
 
 // -------------------- PADDLE --------------------
 struct Paddle {
-    float x,y,halfW,h,speed;
+    float x,y,halfW,h,speed; //HalfW = Middle at paddle
     Paddle(){ reset(); }
     void reset(){ halfW=60; h=10; x=WIN_W/2.0f; y=40; speed=500.0f; }
     void draw() const {
         glBegin(GL_QUADS);
-        glVertex2f(x-halfW, y-h);
-        glVertex2f(x+halfW, y-h);
-        glVertex2f(x+halfW, y+h);
-        glVertex2f(x-halfW, y+h);
+        glVertex2f(x-halfW, y-h); //bottom left
+        glVertex2f(x+halfW, y-h); //bottom right
+        glVertex2f(x+halfW, y+h); //top right
+        glVertex2f(x-halfW, y+h); //top left
         glEnd();
     }
 } paddle;
 
 // -------------------- BALL --------------------
 struct Ball {
-    float x,y,vx,vy,r;
-    bool stuck;
+    float x,y,vx,vy,r;  //x,y ball ar current position vx,vy ball koto speed a move korbe
+    bool stuck;// ball paddle ar shathe  atke ache kina
     Ball(){ reset(); }
     void reset(){ r=7.0f; x=paddle.x; y=paddle.y+20; vx=220; vy=220; stuck=true; }
     void draw() const {
-        const int seg=24;
+        const int seg=24;  // circle smoothness ;smooth ball
         glBegin(GL_TRIANGLE_FAN);
         glVertex2f(x,y);
         for(int i=0;i<=seg;i++){
@@ -85,14 +85,20 @@ struct Brick {
     float r,g,b;
     bool alive() const { return hits>0; }
     void draw() const {
-        if(!alive()) return;
+        if(!alive()) return; //1st check brick is dead or not if dead then return(skip)
         glColor3f(r,g,b);
         glBegin(GL_QUADS);
-        glVertex2f(x,y); glVertex2f(x+w,y); glVertex2f(x+w,y+h); glVertex2f(x,y+h);
+        glVertex2f(x,y);
+        glVertex2f(x+w,y);
+        glVertex2f(x+w,y+h);
+        glVertex2f(x,y+h);
         glEnd();
         glColor3f(0,0,0);
         glBegin(GL_LINE_LOOP);
-        glVertex2f(x,y); glVertex2f(x+w,y); glVertex2f(x+w,y+h); glVertex2f(x,y+h);
+        glVertex2f(x,y);
+        glVertex2f(x+w,y);
+        glVertex2f(x+w,y+h);
+        glVertex2f(x,y+h);
         glEnd();
     }
 };
@@ -108,9 +114,12 @@ struct PowerUp {
     void draw() const {
         if(!active) return;
         switch(type){
-            case EXPAND: glColor3f(0.2f,0.8f,0.2f); break;
-            case SLOW: glColor3f(0.2f,0.2f,0.8f); break;
-            case EXTRA_LIFE: glColor3f(0.9f,0.6f,0.1f); break;
+            case EXPAND: glColor3f(0.2f,0.8f,0.2f);
+            break;
+            case SLOW: glColor3f(0.2f,0.2f,0.8f);
+            break;
+            case EXTRA_LIFE: glColor3f(0.9f,0.6f,0.1f);
+            break;
         }
         glBegin(GL_QUADS);
         glVertex2f(x-w/2,y-h/2);
@@ -130,8 +139,8 @@ bool rectIntersect(float ax,float ay,float aw,float ah,float bx,float by,float b
 }
 
 // -------------------- SOUND --------------------
-void playMusic(bool inGame=true){
-    if(!soundOn) return;
+void playMusic(bool inGame=true){ //always on
+    if(!soundOn) return;//if not on then
     PlaySound(arcadeMusicPath.c_str(), NULL, SND_ASYNC | SND_LOOP);
     musicPlaying = inGame;
 }
@@ -143,17 +152,18 @@ void stopMusic(){
 // -------------------- LEVEL BUILD --------------------
 void buildLevel(int lvl){
     bricks.clear();
-    int rows=5+lvl/2, cols=10;
-    float margin=50, gap=6;
+    int rows=5+lvl/2, cols=10; //5+1/2=5,5+2/2=6
+    float margin=50, gap=6; //margin= screen pashe faka jayga
     float brickAreaW = WIN_W - 2*margin;
     float bw = brickAreaW/cols - gap;
-    float bh = 18;
+    float bh = 18; //brick height
     for(int r=0;r<rows;r++){
         for(int c=0;c<cols;c++){
             Brick b;
-            b.x = margin + c*(bw+gap);
-            b.y = WIN_H - margin - (r+1)*(bh+gap);
-            b.w = bw; b.h = bh;
+            b.x = margin + c*(bw+gap); //column barle x right side a jay
+            b.y = WIN_H - margin - (r+1)*(bh+gap);//row barla y niche jay
+            b.w = bw;
+            b.h = bh;
             b.hits = 1 + (r/3);
             b.r = 0.2f + 0.12f*r;
             b.g = 0.1f + 0.14f*c/cols;
