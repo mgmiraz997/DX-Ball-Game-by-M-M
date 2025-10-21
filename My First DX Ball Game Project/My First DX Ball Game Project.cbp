@@ -33,7 +33,7 @@ bool musicPlaying=false;
 string arcadeMusicPath = "D:\\Huddai\\Boring Time\\Projects\\My First DX Ball Game Project\\arcade.wav";
 
 // Gameplay
-int lives=3, score=0, levelNum=1;
+int lives=8, score=0, levelNum=1;
 float lastTime=0.0f;
 string playerName="";
 vector<pair<string,int>> highScores;
@@ -176,30 +176,43 @@ void resetLevel(){ paddle.reset(); ball.reset(); powerups.clear(); buildLevel(le
 
 // -------------------- DIFFICULTY --------------------
 void applyDifficulty(){
-    if(difficulty=="Easy"){ paddle.halfW=90; ball.vx=180; ball.vy=180; lives=7; }
-    else if(difficulty=="Medium"){ paddle.halfW=60; ball.vx=220; ball.vy=220; lives=5; }
-    else { paddle.halfW=40; ball.vx=280; ball.vy=280; lives=3; }
+    if(difficulty=="Easy")
+        { paddle.halfW=90; //large the paddle size
+          ball.vx=180;
+          ball.vy=180; //less the ball speed
+          lives=5; }
+    else if(difficulty=="Medium")
+        { paddle.halfW=60;
+          ball.vx=220;
+          ball.vy=220;
+          lives=3; }
+    else { paddle.halfW=40; ball.vx=280; ball.vy=280; lives=2; }
 }
 
 // -------------------- GAME LOGIC --------------------
-void spawnPowerUp(float x,float y){
-    if(rand()%100<20){
-        int p = rand()%3; PowerType t = (p==0?EXPAND:(p==1?SLOW:EXTRA_LIFE));
+void spawnPowerUp(float x,float y){//active the power-up system
+    if(rand()%100<20){ //20% chance
+        int p = rand()%3;
+        PowerType t = (p==0?EXPAND:(p==1?SLOW:EXTRA_LIFE));
         powerups.emplace_back(x,y,t);
     }
 }
 
-void nextLevel(){ levelNum++; resetLevel(); }
+void nextLevel()
+    { levelNum++;
+      resetLevel(); }
 void loseLife(){
     lives--;
     if(lives<=0){
         gameState = STATE_GAME_OVER;
         stopMusic();
         highScores.push_back({playerName, score});
-        sort(highScores.begin(), highScores.end(), [](auto &a, auto &b){ return a.second>b.second; });
+        sort(highScores.begin(), highScores.end(),
+             [](auto &a, auto &b){ return a.second>b.second; });//descending order for top score
         ofstream fout("scores.txt");
         int cnt=0;
-        for(auto &p: highScores){ fout << p.first << " " << p.second << "\n"; if(++cnt>=10) break; }
+        for(auto &p: highScores){
+                fout << p.first << " " << p.second << "\n"; if(++cnt>=10) break; }//save top 10 score
         fout.close();
     } else { ball.reset(); }
 }
@@ -210,20 +223,32 @@ void updateGame(float dt){
     if(rightDown) paddle.x += paddle.speed*dt;
     paddle.x = clampf(paddle.x, paddle.halfW, WIN_W-paddle.halfW);
 
-    if(ball.stuck){ ball.x=paddle.x; ball.y=paddle.y+20; }
-    else { ball.x += ball.vx*dt; ball.y += ball.vy*dt; }
+    if(ball.stuck){
+            ball.x=paddle.x;
+            ball.y=paddle.y+20; }
+    else {
+            ball.x += ball.vx*dt;
+            ball.y += ball.vy*dt; }
 
-    if(ball.x-ball.r <=0){ ball.x=ball.r; ball.vx=fabs(ball.vx); }
-    if(ball.x+ball.r >=WIN_W){ ball.x=WIN_W-ball.r; ball.vx=-fabs(ball.vx); }
-    if(ball.y+ball.r >=WIN_H){ ball.y=WIN_H-ball.r; ball.vy=-fabs(ball.vy); }
-    if(ball.y-ball.r <=0){ loseLife(); }
+    if(ball.x-ball.r <=0) //touch left;x=r
+        { ball.x=ball.r;
+          ball.vx=fabs(ball.vx); }
+    if(ball.x+ball.r >=WIN_W)
+        { ball.x=WIN_W-ball.r;
+          ball.vx=-fabs(ball.vx); }
+    if(ball.y+ball.r >=WIN_H)
+        { ball.y=WIN_H-ball.r;
+          ball.vy=-fabs(ball.vy); }
+    if(ball.y-ball.r <=0)
+         { loseLife(); }
 
-    if(ball.vy<0 && ball.y-ball.r <= paddle.y+paddle.h &&
+    if(ball.vy<0 && ball.y - ball.r <= paddle.y + paddle.h &&
        ball.x>=paddle.x-paddle.halfW && ball.x<=paddle.x+paddle.halfW){
-        float hitPos = (ball.x-paddle.x)/paddle.halfW;
+        float hitPos = (ball.x-paddle.x)/paddle.halfW; //to change   e the direction
         float angle = hitPos*3.14159265f/3.0f;
         float speed = sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
-        ball.vx = speed*sin(angle); ball.vy=fabs(speed*cos(angle));
+        ball.vx = speed*sin(angle);
+        ball.vy=fabs(speed*cos(angle));   //fbs for up direction
         ball.y=paddle.y+paddle.h+ball.r+1;
     }
 
@@ -341,7 +366,7 @@ void keyboard(unsigned char key,int,int){
         }
     } else if(gameState==STATE_NAME_INPUT){
         if(key==13 && !playerName.empty()){
-            applyDifficulty(); score=0; levelNum=1; lives=3;
+            applyDifficulty(); score=0; levelNum=1;
             resetLevel(); gameState=STATE_PLAYING; if(soundOn) playMusic();
         } else if(key==8 && !playerName.empty()) playerName.pop_back();
         else if(isalnum(key)||key==' '||key=='_') playerName.push_back(key);
