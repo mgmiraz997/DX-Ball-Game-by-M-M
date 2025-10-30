@@ -22,6 +22,11 @@ A simple DX Ball game our last semester graphics lab project
 
 <img width="1920" height="1080" alt="Screenshot (238)" src="https://github.com/user-attachments/assets/b8aa2e0d-4953-456a-8f55-b2b28eacb365" />
 
+# Game Over:
+
+<img width="1920" height="1080" alt="Screenshot (253)" src="https://github.com/user-attachments/assets/1f65b7b1-2dd9-47d2-a495-0a54e3cbb7eb" />
+
+
 
 # Highest Score:
 
